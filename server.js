@@ -66,6 +66,11 @@ io.on('connection', (socket) => {
         const camSocketId = connectedCameras.get(deviceId);
         if (camSocketId) socket.to(camSocketId).emit('remoteCommand', command); 
     });
+        // --- Walkie-Talkie Voice Relay ---
+    socket.on('voiceCommand', (deviceId, audioData) => { 
+        const camSocketId = connectedCameras.get(deviceId);
+        if (camSocketId) socket.to(camSocketId).emit('voiceCommand', audioData); 
+    });
     
     socket.on('telemetry', (data) => {
         if (socket.role === 'camera') {
