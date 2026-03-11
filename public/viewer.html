@@ -40,6 +40,7 @@
             background: #2a2a35; color: white; border: 1px solid #3f3f4e; 
             padding: 10px 14px; font-size: 13px; cursor: pointer; border-radius: 8px; 
             transition: all 0.3s ease; display: flex; align-items: center; gap: 5px; font-weight: 500; 
+            user-select: none; -webkit-user-select: none; /* For Walkie Talkie */
         }
         button:hover { background: #3f3f4e; border-color: var(--primary); transform: translateY(-2px); }
         
@@ -51,6 +52,7 @@
         #motionBtn.active { background: rgba(255,165,0,0.2); border-color: orange; color: orange; }
         #stealthBtn.active { background: rgba(150,150,150,0.2); border-color: gray; color: gray; }
         #nvBtn.active { background: rgba(0,255,136,0.2); border-color: var(--primary); color: var(--primary); }
+        #walkieBtn.active { background: var(--primary); color: black; border-color: var(--primary); transform: scale(0.95); }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,50,50,0.4); } 70% { box-shadow: 0 0 0 10px rgba(255,50,50,0); } 100% { box-shadow: 0 0 0 0 rgba(255,50,50,0); } }
     </style>
@@ -58,10 +60,7 @@
 <body>
     <h2>Command Center</h2>
     <div class="info-bar">
-        <div class="status">
-            <span class="dot" id="statusDot"></span>
-            <span id="statusText">Waiting for Camera...</span>
-        </div>
+        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Waiting for Camera...</span></div>
         <div class="battery" id="batteryStatus">🔋 --%</div>
     </div>
 
@@ -74,11 +73,14 @@
         <button onclick="sendCommand('zoomIn')">🔍 Zoom +</button>
         <button onclick="sendCommand('zoomOut')">🔍 Zoom -</button>
         <button id="nvBtn" onclick="toggleNightVision()">🌙 Night Vision</button>
-        <button onclick="togglePiP()">🖼️ PiP Mode</button>
+        <button onclick="togglePiP()">🖼️ PiP</button>
         <button onclick="sendCommand('toggleFlash')">🔦 Flashlight</button>
         <button id="stealthBtn" onclick="toggleStealth()">🕶️ Stealth</button>
         <button id="motionBtn" onclick="toggleMotion()">🚨 Alarm: OFF</button>
-        <button id="sirenBtn" class="danger-btn" onclick="toggleSiren()">📢 Sound Siren</button>
+        <button id="sirenBtn" class="danger-btn" onclick="toggleSiren()">📢 Siren</button>
+        
+        <button id="walkieBtn" onpointerdown="startTalk(event)" onpointerup="stopTalk(event)" onpointerleave="stopTalk(event)">🎙️ Hold to Talk</button>
+        
         <button id="recordBtn" onclick="toggleRecording()">🔴 Record</button>
     </div>
     
@@ -91,71 +93,77 @@
         let peerConnection;
         const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
-        // --- Status & Messages ---
         function updateStatus(isOnline) {
             if(isOnline) {
-                statusDot.classList.add('online');
-                statusText.innerText = "Camera Online";
-                statusText.style.color = "var(--primary)";
+                statusDot.classList.add('online'); statusText.innerText = "Camera Online"; statusText.style.color = "var(--primary)";
             } else {
-                statusDot.classList.remove('online');
-                statusText.innerText = "Camera Disconnected";
-                statusText.style.color = "#ff3333";
+                statusDot.classList.remove('online'); statusText.innerText = "Camera Disconnected"; statusText.style.color = "#ff3333";
                 document.getElementById('batteryStatus').innerText = `🔋 --%`;
             }
         }
-        socket.on('batteryInfo', (info) => {
-            document.getElementById('batteryStatus').innerText = `🔋 ${info.level}% ${info.charging ? '⚡' : ''}`;
-        });
+        socket.on('batteryInfo', (info) => { document.getElementById('batteryStatus').innerText = `🔋 ${info.level}% ${info.charging ? '⚡' : ''}`; });
         socket.on('viewerMessage', (msg) => { alert("Camera Notice: " + msg); });
-
         function sendCommand(cmd) { socket.emit('remoteCommand', cmd); }
 
-        // --- Toggles ---
         let isStealth = false;
-        function toggleStealth() {
-            isStealth = !isStealth;
-            sendCommand('toggleStealth');
-            document.getElementById('stealthBtn').classList.toggle('active', isStealth);
-        }
+        function toggleStealth() { isStealth = !isStealth; sendCommand('toggleStealth'); document.getElementById('stealthBtn').classList.toggle('active', isStealth); }
 
         let isNightVision = false;
         function toggleNightVision() {
             isNightVision = !isNightVision;
-            if(isNightVision) video.classList.add('night-vision');
-            else video.classList.remove('night-vision');
+            if(isNightVision) video.classList.add('night-vision'); else video.classList.remove('night-vision');
             document.getElementById('nvBtn').classList.toggle('active', isNightVision);
         }
 
         async function togglePiP() {
-            try {
-                if (document.pictureInPictureElement) await document.exitPictureInPicture();
-                else await video.requestPictureInPicture();
-            } catch (error) { alert("PiP mode not supported in this browser."); }
+            try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } 
+            catch (error) { alert("PiP mode not supported in this browser."); }
         }
 
         let isSiren = false;
         function toggleSiren() {
-            isSiren = !isSiren;
-            sendCommand('toggleSiren');
+            isSiren = !isSiren; sendCommand('toggleSiren');
             const btn = document.getElementById('sirenBtn');
-            btn.classList.toggle('active', isSiren);
-            btn.innerText = isSiren ? "📢 STOP SIREN" : "📢 Sound Siren";
+            btn.classList.toggle('active', isSiren); btn.innerText = isSiren ? "📢 STOP SIREN" : "📢 Siren";
+        }
+
+        // --- NAYA: WALKIE TALKIE LOGIC ---
+        let talkRecorder, talkChunks = [], talkStream;
+        async function startTalk(e) {
+            e.preventDefault(); // Prevent text selection on mobile
+            try {
+                if(!talkStream) talkStream = await navigator.mediaDevices.getUserMedia({audio: true});
+                talkRecorder = new MediaRecorder(talkStream);
+                talkChunks = [];
+                talkRecorder.ondataavailable = e => { if(e.data.size > 0) talkChunks.push(e.data); };
+                talkRecorder.onstop = () => {
+                    const blob = new Blob(talkChunks, { type: 'audio/webm' });
+                    socket.emit('voiceCommand', blob);
+                };
+                talkRecorder.start();
+                document.getElementById('walkieBtn').innerText = "🎙️ Speaking...";
+                document.getElementById('walkieBtn').classList.add('active');
+            } catch(e) { console.error("Mic access denied"); }
+        }
+
+        function stopTalk(e) {
+            e.preventDefault();
+            if(talkRecorder && talkRecorder.state !== 'inactive') {
+                talkRecorder.stop();
+                document.getElementById('walkieBtn').innerText = "🎙️ Hold to Talk";
+                document.getElementById('walkieBtn').classList.remove('active');
+            }
         }
 
         // --- MOTION DETECTION ---
-        let motionEnabled = false;
-        let motionInterval, previousFrameData = null;
-        const motionCanvas = document.createElement('canvas');
-        const mCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
+        let motionEnabled = false, motionInterval, previousFrameData = null;
+        const motionCanvas = document.createElement('canvas'); const mCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
         function playBeep() {
             if(audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'square'; osc.frequency.value = 1200;
-            gain.gain.value = 0.1;
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'square'; osc.frequency.value = 1200; gain.gain.value = 0.1;
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(); osc.stop(audioCtx.currentTime + 0.1);
         }
@@ -181,13 +189,10 @@
             if (previousFrameData) {
                 let diff = 0;
                 for (let i = 0; i < currentFrame.data.length; i += 4) {
-                    const r = Math.abs(currentFrame.data[i] - previousFrameData[i]);
-                    const g = Math.abs(currentFrame.data[i+1] - previousFrameData[i+1]);
-                    const b = Math.abs(currentFrame.data[i+2] - previousFrameData[i+2]);
+                    const r = Math.abs(currentFrame.data[i] - previousFrameData[i]), g = Math.abs(currentFrame.data[i+1] - previousFrameData[i+1]), b = Math.abs(currentFrame.data[i+2] - previousFrameData[i+2]);
                     if (r + g + b > 120) diff++; 
                 }
-                const changedPixels = (diff / (currentFrame.data.length / 4)) * 100;
-                if (changedPixels > 4) { playBeep(); document.body.style.boxShadow = "inset 0 0 150px rgba(255,0,0,0.6)"; setTimeout(() => { document.body.style.boxShadow = "none"; }, 150); }
+                if ((diff / (currentFrame.data.length / 4)) * 100 > 4) { playBeep(); document.body.style.boxShadow = "inset 0 0 150px rgba(255,0,0,0.6)"; setTimeout(() => { document.body.style.boxShadow = "none"; }, 150); }
             }
             previousFrameData = currentFrame.data;
         }
@@ -207,12 +212,10 @@
                     const a = document.createElement('a'); a.href = url; a.download = `CCTV_Record_${new Date().getTime()}.webm`; a.click();
                 };
                 mediaRecorder.start();
-                recordBtn.innerHTML = "⏹️ Stop"; recordBtn.classList.add("recording");
-                isRecording = true;
+                recordBtn.innerHTML = "⏹️ Stop"; recordBtn.classList.add("recording"); isRecording = true;
             } else {
                 mediaRecorder.stop();
-                recordBtn.innerHTML = "🔴 Record"; recordBtn.classList.remove("recording");
-                isRecording = false;
+                recordBtn.innerHTML = "🔴 Record"; recordBtn.classList.remove("recording"); isRecording = false;
             }
         }
 
