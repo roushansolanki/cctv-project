@@ -1,12 +1,27 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CCTV - Monitor</title>
+    <title>CCTV - Command Center</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { background: #222; color: white; text-align: center; font-family: sans-serif; }
+        video { width: 100%; max-width: 800px; border: 2px solid #00ff00; background: #000; }
+        .controls { margin-top: 15px; }
+        button { padding: 10px 15px; margin: 5px; font-size: 16px; cursor: pointer; background: #444; color: white; border: none; border-radius: 5px; }
+        button:hover { background: #666; }
+        #recordBtn.recording { background: red; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+    </style>
 </head>
-<body style="background: #222; color: white; text-align: center; font-family: sans-serif;">
-    <h2>Live Monitoring feed</h2>
-    <video id="video" autoplay playsinline controls style="width: 100%; max-width: 800px; border: 2px solid #00ff00;"></video>
+<body>
+    <h2>Live Command Center</h2>
+    <video id="video" autoplay playsinline controls></video>
+    
+    <div class="controls">
+        <button onclick="sendCommand('switchCamera')">🔄 Switch Camera (F/B)</button>
+        <button onclick="sendCommand('toggleFlash')">🔦 Toggle Flashlight</button>
+        <button id="recordBtn" onclick="toggleRecording()">🔴 Start Recording</button>
+    </div>
     
     <script src="/socket.io/socket.io.js"></script>
     <script>
@@ -15,31 +30,59 @@
         let peerConnection;
         const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
+        // Command bhejne ka function
+        function sendCommand(cmd) {
+            socket.emit('remoteCommand', cmd);
+        }
+
+        // Recording Logic
+        let mediaRecorder;
+        let recordedChunks = [];
+        const recordBtn = document.getElementById('recordBtn');
+        let isRecording = false;
+
+        function toggleRecording() {
+            if (!video.srcObject) return alert("Video feed not active!");
+            
+            if (!isRecording) {
+                recordedChunks = [];
+                mediaRecorder = new MediaRecorder(video.srcObject, { mimeType: 'video/webm' });
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `CCTV_Record_${new Date().getTime()}.webm`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                };
+                mediaRecorder.start();
+                recordBtn.innerText = "⏹️ Stop Recording";
+                recordBtn.classList.add("recording");
+                isRecording = true;
+            } else {
+                mediaRecorder.stop();
+                recordBtn.innerText = "🔴 Start Recording";
+                recordBtn.classList.remove("recording");
+                isRecording = false;
+            }
+        }
+
         socket.on('broadcaster', () => { socket.emit('watcher'); });
 
         socket.on('offer', (id, description) => {
             peerConnection = new RTCPeerConnection(config);
-            
             peerConnection.ontrack = event => { video.srcObject = event.streams[0]; };
-            
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) socket.emit('candidate', id, event.candidate);
-            };
-
+            peerConnection.onicecandidate = event => { if (event.candidate) socket.emit('candidate', id, event.candidate); };
             peerConnection.setRemoteDescription(description)
             .then(() => peerConnection.createAnswer())
             .then(sdp => peerConnection.setLocalDescription(sdp))
             .then(() => socket.emit('answer', id, peerConnection.localDescription));
         });
 
-        socket.on('candidate', (id, candidate) => {
-            peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        });
-
-        socket.on('disconnectPeer', () => {
-            if(peerConnection) peerConnection.close();
-        });
-
+        socket.on('candidate', (id, candidate) => { peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); });
+        socket.on('disconnectPeer', () => { if(peerConnection) peerConnection.close(); });
         socket.emit('watcher');
     </script>
 </body>
