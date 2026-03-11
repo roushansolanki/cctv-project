@@ -101,7 +101,6 @@
         const config = { 
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" }
-                // Add TURN here for production
             ] 
         };
 
@@ -128,6 +127,7 @@
             if(data.battery) document.getElementById('batteryStatus').innerText = `🔋 ${data.battery.level}% ${data.battery.charging ? '⚡' : ''}`;
             if(data.gps && data.gps.lat) {
                 const speed = Math.round(data.gps.speed * 3.6); 
+                // NAYA: Corrected Google Maps Link Format
                 document.getElementById('gpsStatus').innerHTML = `📍 <a href="https://maps.google.com/?q=${data.gps.lat},${data.gps.lng}" target="_blank" style="color:var(--primary)">Map</a> | 🚗 ${speed} km/h`; 
             }
         });
@@ -137,7 +137,6 @@
             socket.emit('remoteCommand', currentTargetId, cmd); 
         }
 
-        // Toggles & Walkie Talkie (Logic remains identical, UI classes updated)
         let isStealth = false; function toggleStealth() { isStealth = !isStealth; sendCommand('toggleStealth'); document.getElementById('stealthBtn').classList.toggle('active', isStealth); }
         let isNightVision = false; function toggleNightVision() { isNightVision = !isNightVision; isNightVision ? video.classList.add('night-vision') : video.classList.remove('night-vision'); document.getElementById('nvBtn').classList.toggle('active', isNightVision); }
         let isSiren = false; function toggleSiren() { isSiren = !isSiren; sendCommand('toggleSiren'); document.getElementById('sirenBtn').classList.toggle('active', isSiren); }
@@ -150,13 +149,14 @@
                 if(!talkStream) talkStream = await navigator.mediaDevices.getUserMedia({audio: true});
                 talkRecorder = new MediaRecorder(talkStream); talkChunks = [];
                 talkRecorder.ondataavailable = e => { if(e.data.size > 0) talkChunks.push(e.data); };
-                talkRecorder.onstop = () => { socket.emit('voiceCommand', new Blob(talkChunks, { type: 'audio/webm' })); }; // Note: In multi-cam, voiceCommand needs routing update in server.js too, but relying on direct peer or targeted emit.
+                // NAYA: Walkie Talkie currentTargetId fix
+                talkRecorder.onstop = () => { socket.emit('voiceCommand', currentTargetId, new Blob(talkChunks, { type: 'audio/webm' })); }; 
                 talkRecorder.start(); document.getElementById('walkieBtn').classList.add('active');
             } catch(e) { console.error("Mic denied"); }
         }
         function stopTalk(e) { e.preventDefault(); if(talkRecorder && talkRecorder.state !== 'inactive') { talkRecorder.stop(); document.getElementById('walkieBtn').classList.remove('active'); } }
 
-        // --- AI LOGIC (Same as before, optimized variables) ---
+        // --- AI LOGIC ---
         let aiModel = null, isAIEnabled = false, isAutoRecordEnabled = false, autoRecordTimeout = null;
         cocoSsd.load().then(model => { aiModel = model; document.getElementById('aiBtn').innerText = "🤖 AI Security: Ready"; });
 
@@ -207,9 +207,7 @@
         }
 
         // WebRTC Signaling
-        socket.on('watcher', id => { 
-            // Camera acknowledged us, prepare to receive offer
-        });
+        socket.on('watcher', id => { });
         
         socket.on('offer', (id, description) => {
             peerConnection = new RTCPeerConnection(config);
