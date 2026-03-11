@@ -3,55 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCTV Command Center</title>
+    <title>CCTV Command Center (AI Edition)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        :root { --primary: #00ff88; --bg: #0f0f13; --panel: #1c1c24; --text: #ffffff; }
-        body { 
-            background: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, sans-serif; 
-            margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; 
-            height: 100vh; box-sizing: border-box; overflow: hidden; transition: box-shadow 0.2s;
-        }
+        :root { --primary: #00ff88; --bg: #0f0f13; --panel: #1c1c24; --text: #ffffff; --ai: #00d2ff; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; height: 100vh; box-sizing: border-box; overflow: hidden; transition: box-shadow 0.2s; }
         h2 { margin-top: 0; margin-bottom: 5px; color: var(--primary); font-weight: 600; letter-spacing: 1px; }
         
-        .info-bar { display: flex; gap: 15px; margin-bottom: 20px; }
-        .status, .battery { font-size: 14px; display: flex; align-items: center; gap: 8px; color: #aaa; background: #111; padding: 5px 15px; border-radius: 20px; border: 1px solid #333; }
+        .top-panel { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 900px;}
+        .info-box { font-size: 13px; display: flex; align-items: center; gap: 8px; color: #aaa; background: #111; padding: 6px 15px; border-radius: 20px; border: 1px solid #333; }
         .dot { height: 10px; width: 10px; background-color: #ff3333; border-radius: 50%; display: inline-block; }
         .dot.online { background-color: var(--primary); box-shadow: 0 0 8px var(--primary); }
+        .gps-link { color: var(--primary); text-decoration: none; font-weight: bold; }
 
-        .video-container { 
-            background: #000; border-radius: 12px; padding: 10px; 
-            box-shadow: 0 8px 32px rgba(0,255,136,0.05); 
-            border: 1px solid rgba(0,255,136,0.2); 
-            margin-bottom: 25px; width: 100%; max-width: 900px; 
-            display: flex; justify-content: center; position: relative;
-        }
-        
-        video { width: 100%; max-height: 52vh; object-fit: contain; border-radius: 8px; transition: filter 0.3s; }
+        .video-container { background: #000; border-radius: 12px; padding: 10px; box-shadow: 0 8px 32px rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.2); margin-bottom: 15px; width: 100%; max-width: 900px; display: flex; justify-content: center; position: relative; }
+        video { width: 100%; max-height: 48vh; object-fit: contain; border-radius: 8px; transition: filter 0.3s; }
         .night-vision { filter: sepia(1) hue-rotate(80deg) saturate(3) brightness(1.2) contrast(1.3); }
-
-        .controls { 
-            background: var(--panel); padding: 15px; border-radius: 16px; 
-            display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #2a2a35;
-            width: 100%; max-width: 900px;
-        }
         
-        button { 
-            background: #2a2a35; color: white; border: 1px solid #3f3f4e; 
-            padding: 10px 14px; font-size: 13px; cursor: pointer; border-radius: 8px; 
-            transition: all 0.3s ease; display: flex; align-items: center; gap: 5px; font-weight: 500; 
-            user-select: none; -webkit-user-select: none; /* For Walkie Talkie */
-        }
+        /* AI Alert Overlay */
+        #aiAlert { position: absolute; top: 20px; right: 20px; background: rgba(255,0,0,0.8); color: white; padding: 5px 15px; border-radius: 5px; font-weight: bold; display: none; animation: pulse 1s infinite; z-index: 10; }
+
+        .controls { background: var(--panel); padding: 15px; border-radius: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #2a2a35; width: 100%; max-width: 950px; }
+        button { background: #2a2a35; color: white; border: 1px solid #3f3f4e; padding: 8px 12px; font-size: 12px; cursor: pointer; border-radius: 8px; transition: all 0.3s ease; display: flex; align-items: center; gap: 5px; font-weight: 500; user-select: none; -webkit-user-select: none; }
         button:hover { background: #3f3f4e; border-color: var(--primary); transform: translateY(-2px); }
         
-        .danger-btn { border-color: #ff3333; }
-        .danger-btn:hover { background: rgba(255,50,50,0.2); border-color: #ff3333; }
-        .danger-btn.active { background: #ff3333; color: white; animation: pulse 1.5s infinite; }
-        
+        .danger-btn { border-color: #ff3333; } .danger-btn.active { background: #ff3333; color: white; animation: pulse 1.5s infinite; }
+        .ai-btn { border-color: var(--ai); color: var(--ai); } .ai-btn.active { background: rgba(0,210,255,0.2); }
         #recordBtn.recording { background: rgba(255,50,50,0.1); border-color: #ff3333; color: #ff3333; animation: pulse 1.5s infinite; }
-        #motionBtn.active { background: rgba(255,165,0,0.2); border-color: orange; color: orange; }
-        #stealthBtn.active { background: rgba(150,150,150,0.2); border-color: gray; color: gray; }
-        #nvBtn.active { background: rgba(0,255,136,0.2); border-color: var(--primary); color: var(--primary); }
         #walkieBtn.active { background: var(--primary); color: black; border-color: var(--primary); transform: scale(0.95); }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,50,50,0.4); } 70% { box-shadow: 0 0 0 10px rgba(255,50,50,0); } 100% { box-shadow: 0 0 0 0 rgba(255,50,50,0); } }
@@ -59,177 +38,151 @@
 </head>
 <body>
     <h2>Command Center</h2>
-    <div class="info-bar">
-        <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Waiting for Camera...</span></div>
-        <div class="battery" id="batteryStatus">🔋 --%</div>
+    
+    <div class="top-panel">
+        <div class="info-box"><span class="dot" id="statusDot"></span><span id="statusText">Waiting...</span></div>
+        <div class="info-box" id="batteryStatus">🔋 --%</div>
+        <div class="info-box" id="gpsStatus">📍 Location: Tracking...</div>
+        <div class="info-box" id="aiStatusBox" style="color: var(--ai);">🤖 AI Loading...</div>
     </div>
 
     <div class="video-container">
-        <video id="video" autoplay playsinline controls></video>
+        <div id="aiAlert">⚠️ PERSON DETECTED!</div>
+        <video id="video" autoplay playsinline controls crossorigin="anonymous"></video>
     </div>
     
     <div class="controls">
-        <button onclick="sendCommand('switchCamera')">🔄 Switch Cam</button>
-        <button onclick="sendCommand('zoomIn')">🔍 Zoom +</button>
-        <button onclick="sendCommand('zoomOut')">🔍 Zoom -</button>
-        <button id="nvBtn" onclick="toggleNightVision()">🌙 Night Vision</button>
-        <button onclick="togglePiP()">🖼️ PiP</button>
-        <button onclick="sendCommand('toggleFlash')">🔦 Flashlight</button>
+        <button onclick="sendCommand('switchCamera')">🔄 Switch</button>
+        <button onclick="sendCommand('zoomIn')">🔍 +</button>
+        <button onclick="sendCommand('zoomOut')">🔍 -</button>
+        <button id="nvBtn" onclick="toggleNightVision()">🌙 NV</button>
+        <button onclick="sendCommand('toggleFlash')">🔦 Flash</button>
         <button id="stealthBtn" onclick="toggleStealth()">🕶️ Stealth</button>
-        <button id="motionBtn" onclick="toggleMotion()">🚨 Alarm: OFF</button>
         <button id="sirenBtn" class="danger-btn" onclick="toggleSiren()">📢 Siren</button>
+        <button id="walkieBtn" onpointerdown="startTalk(event)" onpointerup="stopTalk(event)" onpointerleave="stopTalk(event)">🎙️ Talk</button>
         
-        <button id="walkieBtn" onpointerdown="startTalk(event)" onpointerup="stopTalk(event)" onpointerleave="stopTalk(event)">🎙️ Hold to Talk</button>
+        <button id="aiBtn" class="ai-btn" onclick="toggleAI()">🤖 AI Security: OFF</button>
+        <button id="autoRecBtn" class="ai-btn" onclick="toggleAutoRecord()">🎥 Auto-Record: OFF</button>
         
-        <button id="recordBtn" onclick="toggleRecording()">🔴 Record</button>
+        <button id="recordBtn" class="danger-btn" onclick="toggleRecording()">🔴 REC</button>
     </div>
     
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
-        const video = document.getElementById('video');
-        const statusDot = document.getElementById('statusDot');
-        const statusText = document.getElementById('statusText');
-        let peerConnection;
-        const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+        const socket = io(); const video = document.getElementById('video');
+        const statusDot = document.getElementById('statusDot'), statusText = document.getElementById('statusText');
+        let peerConnection; const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
+        // Basic Info
         function updateStatus(isOnline) {
-            if(isOnline) {
-                statusDot.classList.add('online'); statusText.innerText = "Camera Online"; statusText.style.color = "var(--primary)";
-            } else {
-                statusDot.classList.remove('online'); statusText.innerText = "Camera Disconnected"; statusText.style.color = "#ff3333";
-                document.getElementById('batteryStatus').innerText = `🔋 --%`;
-            }
+            if(isOnline) { statusDot.classList.add('online'); statusText.innerText = "Online"; statusText.style.color = "var(--primary)"; } 
+            else { statusDot.classList.remove('online'); statusText.innerText = "Offline"; statusText.style.color = "#ff3333"; }
         }
         socket.on('batteryInfo', (info) => { document.getElementById('batteryStatus').innerText = `🔋 ${info.level}% ${info.charging ? '⚡' : ''}`; });
-        socket.on('viewerMessage', (msg) => { alert("Camera Notice: " + msg); });
+        
+        // NAYA: Live GPS Receive
+        socket.on('gpsInfo', (info) => { 
+            const speed = Math.round(info.speed * 3.6); // Convert m/s to km/h
+            const mapLink = `https://www.google.com/maps?q=${info.lat},${info.lng}`;
+            document.getElementById('gpsStatus').innerHTML = `📍 <a href="${mapLink}" target="_blank" class="gps-link">Open Map</a> | 🚗 ${speed} km/h`; 
+        });
+
+        socket.on('viewerMessage', (msg) => { alert(msg); });
         function sendCommand(cmd) { socket.emit('remoteCommand', cmd); }
 
-        let isStealth = false;
-        function toggleStealth() { isStealth = !isStealth; sendCommand('toggleStealth'); document.getElementById('stealthBtn').classList.toggle('active', isStealth); }
+        // Toggles
+        let isStealth = false; function toggleStealth() { isStealth = !isStealth; sendCommand('toggleStealth'); document.getElementById('stealthBtn').classList.toggle('active', isStealth); }
+        let isNightVision = false; function toggleNightVision() { isNightVision = !isNightVision; isNightVision ? video.classList.add('night-vision') : video.classList.remove('night-vision'); document.getElementById('nvBtn').classList.toggle('active', isNightVision); }
+        let isSiren = false; function toggleSiren() { isSiren = !isSiren; sendCommand('toggleSiren'); document.getElementById('sirenBtn').classList.toggle('active', isSiren); }
 
-        let isNightVision = false;
-        function toggleNightVision() {
-            isNightVision = !isNightVision;
-            if(isNightVision) video.classList.add('night-vision'); else video.classList.remove('night-vision');
-            document.getElementById('nvBtn').classList.toggle('active', isNightVision);
-        }
-
-        async function togglePiP() {
-            try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await video.requestPictureInPicture(); } 
-            catch (error) { alert("PiP mode not supported in this browser."); }
-        }
-
-        let isSiren = false;
-        function toggleSiren() {
-            isSiren = !isSiren; sendCommand('toggleSiren');
-            const btn = document.getElementById('sirenBtn');
-            btn.classList.toggle('active', isSiren); btn.innerText = isSiren ? "📢 STOP SIREN" : "📢 Siren";
-        }
-
-        // --- NAYA: WALKIE TALKIE LOGIC ---
+        // Walkie Talkie
         let talkRecorder, talkChunks = [], talkStream;
         async function startTalk(e) {
-            e.preventDefault(); // Prevent text selection on mobile
+            e.preventDefault();
             try {
                 if(!talkStream) talkStream = await navigator.mediaDevices.getUserMedia({audio: true});
-                talkRecorder = new MediaRecorder(talkStream);
-                talkChunks = [];
+                talkRecorder = new MediaRecorder(talkStream); talkChunks = [];
                 talkRecorder.ondataavailable = e => { if(e.data.size > 0) talkChunks.push(e.data); };
-                talkRecorder.onstop = () => {
-                    const blob = new Blob(talkChunks, { type: 'audio/webm' });
-                    socket.emit('voiceCommand', blob);
-                };
-                talkRecorder.start();
-                document.getElementById('walkieBtn').innerText = "🎙️ Speaking...";
-                document.getElementById('walkieBtn').classList.add('active');
-            } catch(e) { console.error("Mic access denied"); }
+                talkRecorder.onstop = () => { socket.emit('voiceCommand', new Blob(talkChunks, { type: 'audio/webm' })); };
+                talkRecorder.start(); document.getElementById('walkieBtn').classList.add('active');
+            } catch(e) { console.error("Mic denied"); }
+        }
+        function stopTalk(e) { e.preventDefault(); if(talkRecorder && talkRecorder.state !== 'inactive') { talkRecorder.stop(); document.getElementById('walkieBtn').classList.remove('active'); } }
+
+        // --- NAYA: TENSORFLOW AI LOGIC ---
+        let aiModel = null, isAIEnabled = false, isAutoRecordEnabled = false, autoRecordTimeout = null;
+        
+        // Load Model
+        cocoSsd.load().then(model => {
+            aiModel = model;
+            document.getElementById('aiStatusBox').innerText = "🤖 AI Ready";
+        });
+
+        function toggleAI() {
+            if(!aiModel) return alert("AI is still loading, please wait...");
+            isAIEnabled = !isAIEnabled;
+            document.getElementById('aiBtn').innerText = isAIEnabled ? "🤖 AI Security: ON" : "🤖 AI Security: OFF";
+            document.getElementById('aiBtn').classList.toggle('active', isAIEnabled);
+            if(isAIEnabled) detectFrame();
         }
 
-        function stopTalk(e) {
-            e.preventDefault();
-            if(talkRecorder && talkRecorder.state !== 'inactive') {
-                talkRecorder.stop();
-                document.getElementById('walkieBtn').innerText = "🎙️ Hold to Talk";
-                document.getElementById('walkieBtn').classList.remove('active');
-            }
+        function toggleAutoRecord() {
+            if(!isAIEnabled) return alert("Please turn on AI Security first!");
+            isAutoRecordEnabled = !isAutoRecordEnabled;
+            document.getElementById('autoRecBtn').innerText = isAutoRecordEnabled ? "🎥 Auto-Record: ON" : "🎥 Auto-Record: OFF";
+            document.getElementById('autoRecBtn').classList.toggle('active', isAutoRecordEnabled);
         }
 
-        // --- MOTION DETECTION ---
-        let motionEnabled = false, motionInterval, previousFrameData = null;
-        const motionCanvas = document.createElement('canvas'); const mCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-        function playBeep() {
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            osc.type = 'square'; osc.frequency.value = 1200; gain.gain.value = 0.1;
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
-        }
-
-        function toggleMotion() {
-            motionEnabled = !motionEnabled;
-            const btn = document.getElementById('motionBtn');
-            if (motionEnabled) {
-                btn.classList.add('active'); btn.innerText = "🚨 Alarm: ON";
-                motionCanvas.width = video.videoWidth / 4; motionCanvas.height = video.videoHeight / 4;
-                motionInterval = setInterval(checkMotion, 300);
-                if(audioCtx.state === 'suspended') audioCtx.resume();
-            } else {
-                btn.classList.remove('active'); btn.innerText = "🚨 Alarm: OFF";
-                clearInterval(motionInterval); previousFrameData = null;
-            }
-        }
-
-        function checkMotion() {
-            if (!video.videoWidth || !motionEnabled) return;
-            mCtx.drawImage(video, 0, 0, motionCanvas.width, motionCanvas.height);
-            const currentFrame = mCtx.getImageData(0, 0, motionCanvas.width, motionCanvas.height);
-            if (previousFrameData) {
-                let diff = 0;
-                for (let i = 0; i < currentFrame.data.length; i += 4) {
-                    const r = Math.abs(currentFrame.data[i] - previousFrameData[i]), g = Math.abs(currentFrame.data[i+1] - previousFrameData[i+1]), b = Math.abs(currentFrame.data[i+2] - previousFrameData[i+2]);
-                    if (r + g + b > 120) diff++; 
+        function detectFrame() {
+            if(!isAIEnabled || !video.videoWidth) return;
+            aiModel.detect(video).then(predictions => {
+                let personDetected = predictions.some(p => p.class === 'person' && p.score > 0.6); // Confidence > 60%
+                
+                if(personDetected) {
+                    document.getElementById('aiAlert').style.display = "block";
+                    // Start Auto Record if enabled
+                    if(isAutoRecordEnabled && !isRecording) {
+                        toggleRecording();
+                        socket.emit('viewerMessage', 'AI Auto-Record Started!');
+                    }
+                    // Reset timeout if person is still there
+                    if(autoRecordTimeout) clearTimeout(autoRecordTimeout);
+                    autoRecordTimeout = setTimeout(() => {
+                        if(isAutoRecordEnabled && isRecording) toggleRecording(); // Stop after 10s of no person
+                    }, 10000);
+                } else {
+                    document.getElementById('aiAlert').style.display = "none";
                 }
-                if ((diff / (currentFrame.data.length / 4)) * 100 > 4) { playBeep(); document.body.style.boxShadow = "inset 0 0 150px rgba(255,0,0,0.6)"; setTimeout(() => { document.body.style.boxShadow = "none"; }, 150); }
-            }
-            previousFrameData = currentFrame.data;
+                if(isAIEnabled) requestAnimationFrame(detectFrame); // Loop
+            });
         }
 
-        // --- RECORDING ---
+        // Recording
         let mediaRecorder, recordedChunks = [], isRecording = false;
         function toggleRecording() {
-            if (!video.srcObject) return alert("Video feed not active!");
+            if (!video.srcObject) return;
             const recordBtn = document.getElementById('recordBtn');
             if (!isRecording) {
                 recordedChunks = [];
                 mediaRecorder = new MediaRecorder(video.srcObject, { mimeType: 'video/webm' });
                 mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
                 mediaRecorder.onstop = () => {
-                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a'); a.href = url; a.download = `CCTV_Record_${new Date().getTime()}.webm`; a.click();
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(recordedChunks, { type: 'video/webm' })); a.download = `AI_Record_${new Date().getTime()}.webm`; a.click();
                 };
-                mediaRecorder.start();
-                recordBtn.innerHTML = "⏹️ Stop"; recordBtn.classList.add("recording"); isRecording = true;
+                mediaRecorder.start(); recordBtn.innerHTML = "⏹️ Stop REC"; recordBtn.classList.add("recording"); isRecording = true;
             } else {
-                mediaRecorder.stop();
-                recordBtn.innerHTML = "🔴 Record"; recordBtn.classList.remove("recording"); isRecording = false;
+                mediaRecorder.stop(); recordBtn.innerHTML = "🔴 REC"; recordBtn.classList.remove("recording"); isRecording = false;
             }
         }
 
-        // --- WEBRTC ---
+        // WebRTC
         socket.on('broadcaster', () => { socket.emit('watcher'); });
         socket.on('offer', (id, description) => {
             peerConnection = new RTCPeerConnection(config);
             peerConnection.ontrack = event => { video.srcObject = event.streams[0]; updateStatus(true); };
             peerConnection.onicecandidate = event => { if (event.candidate) socket.emit('candidate', id, event.candidate); };
             peerConnection.onconnectionstatechange = () => { if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') updateStatus(false); };
-            peerConnection.setRemoteDescription(description)
-            .then(() => peerConnection.createAnswer())
-            .then(sdp => peerConnection.setLocalDescription(sdp))
-            .then(() => socket.emit('answer', id, peerConnection.localDescription));
+            peerConnection.setRemoteDescription(description).then(() => peerConnection.createAnswer()).then(sdp => peerConnection.setLocalDescription(sdp)).then(() => socket.emit('answer', id, peerConnection.localDescription));
         });
         socket.on('candidate', (id, candidate) => { peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); });
         socket.on('disconnectPeer', () => { if(peerConnection) peerConnection.close(); updateStatus(false); });
