@@ -27,19 +27,24 @@ io.on('connection', (socket) => {
     socket.to(id).emit('candidate', socket.id, message);
   });
   
-  // Remote Commands relay
+  // Remote Commands
   socket.on('remoteCommand', (command) => {
     socket.to(broadcaster).emit('remoteCommand', command);
   });
 
-  // Battery info relay
+  // Battery info
   socket.on('batteryInfo', (info) => {
     socket.broadcast.emit('batteryInfo', info);
   });
 
-  // Messages / Errors relay
+  // Messages
   socket.on('viewerMessage', (msg) => {
     socket.broadcast.emit('viewerMessage', msg);
+  });
+
+  // NAYA: Walkie-Talkie Voice Relay
+  socket.on('voiceCommand', (audioData) => {
+    socket.to(broadcaster).emit('voiceCommand', audioData);
   });
 
   socket.on('disconnect', () => {
