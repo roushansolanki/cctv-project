@@ -1,192 +1,105 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCTV Command Center (AI Edition)</title>
+    <title>Matrix CCTV Grid</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        :root { --primary: #00ff88; --bg: #0f0f13; --panel: #1c1c24; --text: #ffffff; --ai: #00d2ff; }
-        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; height: 100vh; box-sizing: border-box; overflow: hidden; transition: box-shadow 0.2s; }
-        h2 { margin-top: 0; margin-bottom: 5px; color: var(--primary); font-weight: 600; letter-spacing: 1px; }
-        
-        .top-panel { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 900px;}
-        .info-box { font-size: 13px; display: flex; align-items: center; gap: 8px; color: #aaa; background: #111; padding: 6px 15px; border-radius: 20px; border: 1px solid #333; }
-        .dot { height: 10px; width: 10px; background-color: #ff3333; border-radius: 50%; display: inline-block; }
-        .dot.online { background-color: var(--primary); box-shadow: 0 0 8px var(--primary); }
-        .gps-link { color: var(--primary); text-decoration: none; font-weight: bold; }
-
-        .video-container { background: #000; border-radius: 12px; padding: 10px; box-shadow: 0 8px 32px rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.2); margin-bottom: 15px; width: 100%; max-width: 900px; display: flex; justify-content: center; position: relative; }
-        video { width: 100%; max-height: 48vh; object-fit: contain; border-radius: 8px; transition: filter 0.3s; }
-        .night-vision { filter: sepia(1) hue-rotate(80deg) saturate(3) brightness(1.2) contrast(1.3); }
-        
-        /* AI Alert Overlay */
-        #aiAlert { position: absolute; top: 20px; right: 20px; background: rgba(255,0,0,0.8); color: white; padding: 5px 15px; border-radius: 5px; font-weight: bold; display: none; animation: pulse 1s infinite; z-index: 10; }
-
-        .controls { background: var(--panel); padding: 15px; border-radius: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #2a2a35; width: 100%; max-width: 950px; }
-        button { background: #2a2a35; color: white; border: 1px solid #3f3f4e; padding: 8px 12px; font-size: 12px; cursor: pointer; border-radius: 8px; transition: all 0.3s ease; display: flex; align-items: center; gap: 5px; font-weight: 500; user-select: none; -webkit-user-select: none; }
-        button:hover { background: #3f3f4e; border-color: var(--primary); transform: translateY(-2px); }
-        
-        .danger-btn { border-color: #ff3333; } .danger-btn.active { background: #ff3333; color: white; animation: pulse 1.5s infinite; }
-        .ai-btn { border-color: var(--ai); color: var(--ai); } .ai-btn.active { background: rgba(0,210,255,0.2); }
-        #recordBtn.recording { background: rgba(255,50,50,0.1); border-color: #ff3333; color: #ff3333; animation: pulse 1.5s infinite; }
-        #walkieBtn.active { background: var(--primary); color: black; border-color: var(--primary); transform: scale(0.95); }
-
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,50,50,0.4); } 70% { box-shadow: 0 0 0 10px rgba(255,50,50,0); } 100% { box-shadow: 0 0 0 0 rgba(255,50,50,0); } }
+        body { background: #050505; color: #0f0; font-family: monospace; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; flex-grow: 1; gap: 5px; padding: 5px; }
+        .cam-box { background: #111; border: 1px solid #222; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+        video { width: 100%; height: 80%; object-fit: cover; background: #000; }
+        .cam-info { padding: 5px; font-size: 11px; background: #1a1a1a; display: flex; justify-content: space-between; }
+        .cam-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px; }
+        button { background: #222; color: #0f0; border: 1px solid #333; font-size: 10px; cursor: pointer; padding: 5px 0; }
+        button:hover { background: #0f0; color: #000; }
+        .alert { position: absolute; top: 10px; left: 10px; color: red; font-weight: bold; background: black; padding: 2px 5px; display: none; border: 1px solid red; }
     </style>
 </head>
 <body>
-    <h2>Command Center</h2>
+    <div style="padding: 10px; border-bottom: 1px solid #222; display: flex; justify-content: space-between;">
+        <span>SYSTEM: MATRIX_SURVEILLANCE_V3</span>
+        <span id="aiStatus">AI: LOADING...</span>
+    </div>
     
-    <div class="top-panel">
-        <div class="info-box"><span class="dot" id="statusDot"></span><span id="statusText">Waiting...</span></div>
-        <div class="info-box" id="batteryStatus">🔋 --%</div>
-        <div class="info-box" id="gpsStatus">📍 Location: Tracking...</div>
-        <div class="info-box" id="aiStatusBox" style="color: var(--ai);">🤖 AI Loading...</div>
+    <div class="grid-container" id="grid">
+        <div id="slot1" class="cam-box"><span>NO SIGNAL</span></div>
+        <div id="slot2" class="cam-box"><span>NO SIGNAL</span></div>
+        <div id="slot3" class="cam-box"><span>NO SIGNAL</span></div>
+        <div id="slot4" class="cam-box"><span>NO SIGNAL</span></div>
     </div>
 
-    <div class="video-container">
-        <div id="aiAlert">⚠️ PERSON DETECTED!</div>
-        <video id="video" autoplay playsinline controls crossorigin="anonymous"></video>
-    </div>
-    
-    <div class="controls">
-        <button onclick="sendCommand('switchCamera')">🔄 Switch</button>
-        <button onclick="sendCommand('zoomIn')">🔍 +</button>
-        <button onclick="sendCommand('zoomOut')">🔍 -</button>
-        <button id="nvBtn" onclick="toggleNightVision()">🌙 NV</button>
-        <button onclick="sendCommand('toggleFlash')">🔦 Flash</button>
-        <button id="stealthBtn" onclick="toggleStealth()">🕶️ Stealth</button>
-        <button id="sirenBtn" class="danger-btn" onclick="toggleSiren()">📢 Siren</button>
-        <button id="walkieBtn" onpointerdown="startTalk(event)" onpointerup="stopTalk(event)" onpointerleave="stopTalk(event)">🎙️ Talk</button>
-        
-        <button id="aiBtn" class="ai-btn" onclick="toggleAI()">🤖 AI Security: OFF</button>
-        <button id="autoRecBtn" class="ai-btn" onclick="toggleAutoRecord()">🎥 Auto-Record: OFF</button>
-        
-        <button id="recordBtn" class="danger-btn" onclick="toggleRecording()">🔴 REC</button>
-    </div>
-    
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io(); const video = document.getElementById('video');
-        const statusDot = document.getElementById('statusDot'), statusText = document.getElementById('statusText');
-        let peerConnection; const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+        const socket = io();
+        let aiModel;
+        cocoSsd.load().then(m => { aiModel = m; document.getElementById('aiStatus').innerText = "AI: READY"; });
 
-        // Basic Info
-        function updateStatus(isOnline) {
-            if(isOnline) { statusDot.classList.add('online'); statusText.innerText = "Online"; statusText.style.color = "var(--primary)"; } 
-            else { statusDot.classList.remove('online'); statusText.innerText = "Offline"; statusText.style.color = "#ff3333"; }
-        }
-        socket.on('batteryInfo', (info) => { document.getElementById('batteryStatus').innerText = `🔋 ${info.level}% ${info.charging ? '⚡' : ''}`; });
-        
-        // NAYA: Live GPS Receive
-        socket.on('gpsInfo', (info) => { 
-            const speed = Math.round(info.speed * 3.6); // Convert m/s to km/h
-            const mapLink = `https://www.google.com/maps?q=${info.lat},${info.lng}`;
-            document.getElementById('gpsStatus').innerHTML = `📍 <a href="${mapLink}" target="_blank" class="gps-link">Open Map</a> | 🚗 ${speed} km/h`; 
+        let connectedCams = {}; 
+        let slotIndex = 1;
+
+        socket.emit('getBroadcasters');
+
+        socket.on('broadcaster', (socketId, name) => {
+            if (connectedCams[socketId] || slotIndex > 4) return;
+            setupCam(socketId, name, slotIndex++);
         });
 
-        socket.on('viewerMessage', (msg) => { alert(msg); });
-        function sendCommand(cmd) { socket.emit('remoteCommand', cmd); }
-
-        // Toggles
-        let isStealth = false; function toggleStealth() { isStealth = !isStealth; sendCommand('toggleStealth'); document.getElementById('stealthBtn').classList.toggle('active', isStealth); }
-        let isNightVision = false; function toggleNightVision() { isNightVision = !isNightVision; isNightVision ? video.classList.add('night-vision') : video.classList.remove('night-vision'); document.getElementById('nvBtn').classList.toggle('active', isNightVision); }
-        let isSiren = false; function toggleSiren() { isSiren = !isSiren; sendCommand('toggleSiren'); document.getElementById('sirenBtn').classList.toggle('active', isSiren); }
-
-        // Walkie Talkie
-        let talkRecorder, talkChunks = [], talkStream;
-        async function startTalk(e) {
-            e.preventDefault();
-            try {
-                if(!talkStream) talkStream = await navigator.mediaDevices.getUserMedia({audio: true});
-                talkRecorder = new MediaRecorder(talkStream); talkChunks = [];
-                talkRecorder.ondataavailable = e => { if(e.data.size > 0) talkChunks.push(e.data); };
-                talkRecorder.onstop = () => { socket.emit('voiceCommand', new Blob(talkChunks, { type: 'audio/webm' })); };
-                talkRecorder.start(); document.getElementById('walkieBtn').classList.add('active');
-            } catch(e) { console.error("Mic denied"); }
-        }
-        function stopTalk(e) { e.preventDefault(); if(talkRecorder && talkRecorder.state !== 'inactive') { talkRecorder.stop(); document.getElementById('walkieBtn').classList.remove('active'); } }
-
-        // --- NAYA: TENSORFLOW AI LOGIC ---
-        let aiModel = null, isAIEnabled = false, isAutoRecordEnabled = false, autoRecordTimeout = null;
-        
-        // Load Model
-        cocoSsd.load().then(model => {
-            aiModel = model;
-            document.getElementById('aiStatusBox').innerText = "🤖 AI Ready";
-        });
-
-        function toggleAI() {
-            if(!aiModel) return alert("AI is still loading, please wait...");
-            isAIEnabled = !isAIEnabled;
-            document.getElementById('aiBtn').innerText = isAIEnabled ? "🤖 AI Security: ON" : "🤖 AI Security: OFF";
-            document.getElementById('aiBtn').classList.toggle('active', isAIEnabled);
-            if(isAIEnabled) detectFrame();
+        function setupCam(socketId, name, slot) {
+            const container = document.getElementById('slot' + slot);
+            container.innerHTML = `
+                <div class="alert" id="alert-${socketId}">PERSON!</div>
+                <video id="v-${socketId}" autoplay playsinline></video>
+                <div class="cam-info">
+                    <span>NAME: ${name}</span>
+                    <span id="bat-${socketId}">BAT: --%</span>
+                </div>
+                <div class="cam-controls">
+                    <button onclick="cmd('${socketId}','switchCamera')">CAM</button>
+                    <button onclick="cmd('${socketId}','toggleFlash')">LIGHT</button>
+                    <button onclick="cmd('${socketId}','toggleStealth')">HIDE</button>
+                    <button onpointerdown="startTalk('${socketId}')" onpointerup="stopTalk()">MIC</button>
+                </div>
+            `;
+            connectedCams[socketId] = { pc: new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }) };
+            socket.emit('watcher', socketId);
+            
+            const pc = connectedCams[socketId].pc;
+            pc.ontrack = e => { 
+                const v = document.getElementById('v-' + socketId);
+                v.srcObject = e.streams[0];
+                setInterval(() => runAI(v, socketId), 1000);
+            };
+            socket.on('offer', (id, desc) => {
+                if(id !== socketId) return;
+                pc.setRemoteDescription(desc).then(() => pc.createAnswer()).then(d => pc.setLocalDescription(d)).then(() => socket.emit('answer', id, pc.localDescription));
+            });
+            pc.onicecandidate = e => e.candidate && socket.emit('candidate', socketId, e.candidate);
         }
 
-        function toggleAutoRecord() {
-            if(!isAIEnabled) return alert("Please turn on AI Security first!");
-            isAutoRecordEnabled = !isAutoRecordEnabled;
-            document.getElementById('autoRecBtn').innerText = isAutoRecordEnabled ? "🎥 Auto-Record: ON" : "🎥 Auto-Record: OFF";
-            document.getElementById('autoRecBtn').classList.toggle('active', isAutoRecordEnabled);
-        }
-
-        function detectFrame() {
-            if(!isAIEnabled || !video.videoWidth) return;
-            aiModel.detect(video).then(predictions => {
-                let personDetected = predictions.some(p => p.class === 'person' && p.score > 0.6); // Confidence > 60%
-                
-                if(personDetected) {
-                    document.getElementById('aiAlert').style.display = "block";
-                    // Start Auto Record if enabled
-                    if(isAutoRecordEnabled && !isRecording) {
-                        toggleRecording();
-                        socket.emit('viewerMessage', 'AI Auto-Record Started!');
-                    }
-                    // Reset timeout if person is still there
-                    if(autoRecordTimeout) clearTimeout(autoRecordTimeout);
-                    autoRecordTimeout = setTimeout(() => {
-                        if(isAutoRecordEnabled && isRecording) toggleRecording(); // Stop after 10s of no person
-                    }, 10000);
-                } else {
-                    document.getElementById('aiAlert').style.display = "none";
-                }
-                if(isAIEnabled) requestAnimationFrame(detectFrame); // Loop
+        function runAI(v, sid) {
+            if(!aiModel || !v.videoWidth) return;
+            aiModel.detect(v).then(p => {
+                const person = p.some(x => x.class === 'person');
+                document.getElementById('alert-' + sid).style.display = person ? 'block' : 'none';
             });
         }
 
-        // Recording
-        let mediaRecorder, recordedChunks = [], isRecording = false;
-        function toggleRecording() {
-            if (!video.srcObject) return;
-            const recordBtn = document.getElementById('recordBtn');
-            if (!isRecording) {
-                recordedChunks = [];
-                mediaRecorder = new MediaRecorder(video.srcObject, { mimeType: 'video/webm' });
-                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
-                mediaRecorder.onstop = () => {
-                    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(recordedChunks, { type: 'video/webm' })); a.download = `AI_Record_${new Date().getTime()}.webm`; a.click();
-                };
-                mediaRecorder.start(); recordBtn.innerHTML = "⏹️ Stop REC"; recordBtn.classList.add("recording"); isRecording = true;
-            } else {
-                mediaRecorder.stop(); recordBtn.innerHTML = "🔴 REC"; recordBtn.classList.remove("recording"); isRecording = false;
-            }
+        function cmd(sid, c) { socket.emit('remoteCommand', sid, c); }
+        
+        let recorder;
+        async function startTalk(sid) {
+            const s = await navigator.mediaDevices.getUserMedia({audio:true});
+            recorder = new MediaRecorder(s);
+            let chunks = [];
+            recorder.ondataavailable = e => chunks.push(e.data);
+            recorder.onstop = () => socket.emit('voiceCommand', sid, new Blob(chunks));
+            recorder.start();
         }
+        function stopTalk() { if(recorder) recorder.stop(); }
 
-        // WebRTC
-        socket.on('broadcaster', () => { socket.emit('watcher'); });
-        socket.on('offer', (id, description) => {
-            peerConnection = new RTCPeerConnection(config);
-            peerConnection.ontrack = event => { video.srcObject = event.streams[0]; updateStatus(true); };
-            peerConnection.onicecandidate = event => { if (event.candidate) socket.emit('candidate', id, event.candidate); };
-            peerConnection.onconnectionstatechange = () => { if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') updateStatus(false); };
-            peerConnection.setRemoteDescription(description).then(() => peerConnection.createAnswer()).then(sdp => peerConnection.setLocalDescription(sdp)).then(() => socket.emit('answer', id, peerConnection.localDescription));
-        });
-        socket.on('candidate', (id, candidate) => { peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); });
-        socket.on('disconnectPeer', () => { if(peerConnection) peerConnection.close(); updateStatus(false); });
-        socket.emit('watcher');
+        socket.on('batteryInfo', (sid, info) => { if(document.getElementById('bat-'+sid)) document.getElementById('bat-'+sid).innerText = "BAT: "+info.level+"%"; });
+        socket.on('disconnectPeer', sid => { location.reload(); }); // Simple refresh on disconnect
     </script>
 </body>
 </html>
