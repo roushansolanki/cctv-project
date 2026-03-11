@@ -9,7 +9,7 @@
         body { 
             background: var(--bg); color: var(--text); font-family: 'Segoe UI', Tahoma, sans-serif; 
             margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; 
-            height: 100vh; box-sizing: border-box; overflow: hidden;
+            height: 100vh; box-sizing: border-box; overflow: hidden; transition: box-shadow 0.2s;
         }
         h2 { margin-top: 0; margin-bottom: 5px; color: var(--primary); font-weight: 600; letter-spacing: 1px; }
         
@@ -25,31 +25,26 @@
             display: flex; justify-content: center; position: relative;
         }
         
-        /* Video size fixed to never need scrolling */
-        video { 
-            width: 100%; max-height: 55vh; object-fit: contain; border-radius: 8px; 
-        }
+        video { width: 100%; max-height: 55vh; object-fit: contain; border-radius: 8px; }
 
         .controls { 
             background: var(--panel); padding: 20px; border-radius: 16px; 
-            display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; 
+            display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #2a2a35;
             width: 100%; max-width: 800px;
         }
         
         button { 
             background: #2a2a35; color: white; border: 1px solid #3f3f4e; 
-            padding: 12px 20px; font-size: 15px; cursor: pointer; border-radius: 10px; 
-            transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; font-weight: 500; 
+            padding: 12px 15px; font-size: 14px; cursor: pointer; border-radius: 8px; 
+            transition: all 0.3s ease; display: flex; align-items: center; gap: 8px; font-weight: 500; 
         }
-        button:hover { background: #3f3f4e; border-color: var(--primary); transform: translateY(-3px); }
-        button:active { transform: translateY(0); }
+        button:hover { background: #3f3f4e; border-color: var(--primary); transform: translateY(-2px); }
         
-        #recordBtn.recording { 
-            background: rgba(255,50,50,0.1); border-color: #ff3333; color: #ff3333; 
-            animation: pulse 1.5s infinite; 
-        }
-        
+        #recordBtn.recording { background: rgba(255,50,50,0.1); border-color: #ff3333; color: #ff3333; animation: pulse 1.5s infinite; }
+        #motionBtn.active { background: rgba(255,165,0,0.2); border-color: orange; color: orange; }
+        #stealthBtn.active { background: rgba(150,150,150,0.2); border-color: gray; color: gray; }
+
         @keyframes pulse { 
             0% { box-shadow: 0 0 0 0 rgba(255,50,50,0.4); } 
             70% { box-shadow: 0 0 0 10px rgba(255,50,50,0); } 
@@ -69,9 +64,11 @@
     </div>
     
     <div class="controls">
-        <button onclick="sendCommand('switchCamera')">🔄 Switch Camera</button>
-        <button onclick="sendCommand('toggleFlash')">🔦 Toggle Flash</button>
-        <button id="recordBtn" onclick="toggleRecording()">🔴 Start Recording</button>
+        <button onclick="sendCommand('switchCamera')">🔄 Switch F/B</button>
+        <button onclick="sendCommand('toggleFlash')">🔦 Flashlight</button>
+        <button id="stealthBtn" onclick="toggleStealth()">🕶️ Stealth Mode</button>
+        <button id="motionBtn" onclick="toggleMotion()">🚨 Alarm: OFF</button>
+        <button id="recordBtn" onclick="toggleRecording()">🔴 Record</button>
     </div>
     
     <script src="/socket.io/socket.io.js"></script>
@@ -97,13 +94,93 @@
 
         function sendCommand(cmd) { socket.emit('remoteCommand', cmd); }
 
+        // --- STEALTH MODE LOGIC ---
+        let isStealth = false;
+        function toggleStealth() {
+            isStealth = !isStealth;
+            sendCommand('toggleStealth');
+            const btn = document.getElementById('stealthBtn');
+            btn.classList.toggle('active', isStealth);
+            btn.innerText = isStealth ? "🕶️ Stealth: ON" : "🕶️ Stealth Mode";
+        }
+
+        // --- MOTION DETECTION LOGIC ---
+        let motionEnabled = false;
+        let motionInterval;
+        let previousFrameData = null;
+        const motionCanvas = document.createElement('canvas');
+        const mCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
+        
+        // Audio Synthesizer for Beep Sound
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        function playBeep() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = 1200; // High pitch alarm
+            gain.gain.value = 0.1;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1); // Short beep
+        }
+
+        function toggleMotion() {
+            motionEnabled = !motionEnabled;
+            const btn = document.getElementById('motionBtn');
+            if (motionEnabled) {
+                btn.classList.add('active');
+                btn.innerText = "🚨 Alarm: ON";
+                // Reduce resolution for faster processing
+                motionCanvas.width = video.videoWidth / 4;
+                motionCanvas.height = video.videoHeight / 4;
+                motionInterval = setInterval(checkMotion, 300); // Check every 300ms
+                if(audioCtx.state === 'suspended') audioCtx.resume(); // Unlock audio
+            } else {
+                btn.classList.remove('active');
+                btn.innerText = "🚨 Alarm: OFF";
+                clearInterval(motionInterval);
+                previousFrameData = null;
+            }
+        }
+
+        function checkMotion() {
+            if (!video.videoWidth || !motionEnabled) return;
+            mCtx.drawImage(video, 0, 0, motionCanvas.width, motionCanvas.height);
+            const currentFrame = mCtx.getImageData(0, 0, motionCanvas.width, motionCanvas.height);
+            
+            if (previousFrameData) {
+                let diff = 0;
+                for (let i = 0; i < currentFrame.data.length; i += 4) {
+                    const r = Math.abs(currentFrame.data[i] - previousFrameData[i]);
+                    const g = Math.abs(currentFrame.data[i+1] - previousFrameData[i+1]);
+                    const b = Math.abs(currentFrame.data[i+2] - previousFrameData[i+2]);
+                    if (r + g + b > 120) diff++; // Pixel difference threshold
+                }
+                const changedPixels = (diff / (currentFrame.data.length / 4)) * 100;
+                if (changedPixels > 4) { // If more than 4% of screen changes
+                    triggerAlarm();
+                }
+            }
+            previousFrameData = currentFrame.data;
+        }
+
+        function triggerAlarm() {
+            playBeep();
+            document.body.style.boxShadow = "inset 0 0 150px rgba(255,0,0,0.6)";
+            setTimeout(() => { document.body.style.boxShadow = "none"; }, 150);
+        }
+
+        // --- RECORDING LOGIC ---
         let mediaRecorder;
         let recordedChunks = [];
-        const recordBtn = document.getElementById('recordBtn');
         let isRecording = false;
-
         function toggleRecording() {
             if (!video.srcObject) return alert("Video feed not active!");
+            const recordBtn = document.getElementById('recordBtn');
             if (!isRecording) {
                 recordedChunks = [];
                 mediaRecorder = new MediaRecorder(video.srcObject, { mimeType: 'video/webm' });
@@ -115,48 +192,35 @@
                     a.href = url;
                     a.download = `CCTV_Record_${new Date().getTime()}.webm`;
                     a.click();
-                    URL.revokeObjectURL(url);
                 };
                 mediaRecorder.start();
-                recordBtn.innerHTML = "⏹️ Stop Recording";
+                recordBtn.innerHTML = "⏹️ Stop";
                 recordBtn.classList.add("recording");
                 isRecording = true;
             } else {
                 mediaRecorder.stop();
-                recordBtn.innerHTML = "🔴 Start Recording";
+                recordBtn.innerHTML = "🔴 Record";
                 recordBtn.classList.remove("recording");
                 isRecording = false;
             }
         }
 
+        // --- WEBRTC CONNECTION ---
         socket.on('broadcaster', () => { socket.emit('watcher'); });
-
         socket.on('offer', (id, description) => {
             peerConnection = new RTCPeerConnection(config);
-            peerConnection.ontrack = event => { 
-                video.srcObject = event.streams[0]; 
-                updateStatus(true);
-            };
+            peerConnection.ontrack = event => { video.srcObject = event.streams[0]; updateStatus(true); };
             peerConnection.onicecandidate = event => { if (event.candidate) socket.emit('candidate', id, event.candidate); };
-            
-            // Connection state listener
             peerConnection.onconnectionstatechange = () => {
-                if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
-                    updateStatus(false);
-                }
+                if(peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') updateStatus(false);
             };
-
             peerConnection.setRemoteDescription(description)
             .then(() => peerConnection.createAnswer())
             .then(sdp => peerConnection.setLocalDescription(sdp))
             .then(() => socket.emit('answer', id, peerConnection.localDescription));
         });
-
         socket.on('candidate', (id, candidate) => { peerConnection.addIceCandidate(new RTCIceCandidate(candidate)); });
-        socket.on('disconnectPeer', () => { 
-            if(peerConnection) peerConnection.close(); 
-            updateStatus(false);
-        });
+        socket.on('disconnectPeer', () => { if(peerConnection) peerConnection.close(); updateStatus(false); });
         socket.emit('watcher');
     </script>
 </body>
