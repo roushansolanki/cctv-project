@@ -5,53 +5,86 @@ const io = require('socket.io')(http);
 
 app.use(express.static('public'));
 
-let broadcasters = {}; // Store multiple cameras
+// 1. Basic Security: Token Authentication
+// Har connection (Camera ya Viewer) ko connect hone se pehle ye secret token dena hoga
+const SECRET_TOKEN = process.env.AUTH_TOKEN || "MySuperSecretCCTV2026"; 
+
+io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    if (token === SECRET_TOKEN) {
+        next();
+    } else {
+        next(new Error("Authentication Error: Invalid Token"));
+    }
+});
+
+// 2. Multi-Camera Storage
+// Format: { "cam-hall": socket.id, "cam-gate": socket.id }
+const connectedCameras = new Map(); 
 
 io.on('connection', (socket) => {
-  // Jab koi phone camera chalu kare
-  socket.on('broadcaster', (id) => {
-    broadcasters[socket.id] = { id: id, socketId: socket.id };
-    socket.broadcast.emit('broadcaster', socket.id, id);
-  });
+    console.log(`[+] New device authenticated: ${socket.id}`);
 
-  // Viewer ko saare available cameras batana
-  socket.on('getBroadcasters', () => {
-    Object.values(broadcasters).forEach(b => {
-        socket.emit('broadcaster', b.socketId, b.id);
+    // --- CAMERA REGISTRATION ---
+    socket.on('register_camera', (deviceId) => {
+        if (!deviceId) return socket.emit('error', 'Device ID required');
+        
+        // Remove older connection if same ID reconnects
+        if (connectedCameras.has(deviceId)) {
+            socket.to(connectedCameras.get(deviceId)).emit('forceDisconnect');
+        }
+
+        connectedCameras.set(deviceId, socket.id);
+        socket.deviceId = deviceId; // Save to socket instance
+        socket.role = 'camera';
+        
+        socket.join(`camera_room_${deviceId}`);
+        console.log(`[🎥] Camera Ready: ${deviceId}`);
     });
-  });
 
-  socket.on('watcher', (broadcasterId) => {
-    socket.to(broadcasterId).emit('watcher', socket.id);
-  });
+    // --- VIEWER CONNECTION ---
+    socket.on('watch_camera', (deviceId) => {
+        socket.role = 'viewer';
+        const camSocketId = connectedCameras.get(deviceId);
+        
+        if (camSocketId) {
+            socket.join(`viewer_room_${deviceId}`);
+            socket.to(camSocketId).emit('watcher', socket.id);
+            console.log(`[👁️] Viewer connected to: ${deviceId}`);
+        } else {
+            socket.emit('systemError', 'Camera is offline or invalid Device ID');
+        }
+    });
 
-  socket.on('offer', (id, message) => {
-    socket.to(id).emit('offer', socket.id, message);
-  });
-  socket.on('answer', (id, message) => {
-    socket.to(id).emit('answer', socket.id, message);
-  });
-  socket.on('candidate', (id, message) => {
-    socket.to(id).emit('candidate', socket.id, message);
-  });
+    // --- WebRTC Signaling (Routed specific to Device) ---
+    socket.on('offer', (targetId, message) => { socket.to(targetId).emit('offer', socket.id, message); });
+    socket.on('answer', (targetId, message) => { socket.to(targetId).emit('answer', socket.id, message); });
+    socket.on('candidate', (targetId, message) => { socket.to(targetId).emit('candidate', socket.id, message); });
 
-  // Control commands targeted to specific phone
-  socket.on('remoteCommand', (targetId, command) => {
-    socket.to(targetId).emit('remoteCommand', command);
-  });
+    // --- Telemetry & Commands (Routed safely) ---
+    socket.on('remoteCommand', (deviceId, command) => { 
+        const camSocketId = connectedCameras.get(deviceId);
+        if (camSocketId) socket.to(camSocketId).emit('remoteCommand', command); 
+    });
+    
+    socket.on('telemetry', (data) => {
+        if (socket.role === 'camera') {
+            socket.to(`viewer_room_${socket.deviceId}`).emit('telemetryData', data);
+        }
+    });
 
-  socket.on('voiceCommand', (targetId, audioData) => {
-    socket.to(targetId).emit('voiceCommand', audioData);
-  });
-
-  socket.on('batteryInfo', (info) => { socket.broadcast.emit('batteryInfo', socket.id, info); });
-  socket.on('gpsInfo', (info) => { socket.broadcast.emit('gpsInfo', socket.id, info); });
-
-  socket.on('disconnect', () => {
-    delete broadcasters[socket.id];
-    socket.broadcast.emit('disconnectPeer', socket.id);
-  });
+    // --- Error Handling & Disconnect ---
+    socket.on('disconnect', () => {
+        if (socket.role === 'camera') {
+            connectedCameras.delete(socket.deviceId);
+            // Alert all viewers watching this specific camera
+            socket.to(`viewer_room_${socket.deviceId}`).emit('systemError', 'Camera disconnected unexpectedly.');
+            console.log(`[❌] Camera Offline: ${socket.deviceId}`);
+        } else if (socket.role === 'viewer') {
+            socket.broadcast.emit('disconnectPeer', socket.id);
+        }
+    });
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+http.listen(PORT, () => console.log(`Secure Multi-Cam Server running on port ${PORT}`));
