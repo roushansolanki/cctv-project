@@ -1,111 +1,74 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CCTV - Broadcaster</title>
+    <title>CCTV Broadcaster</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="manifest" href="/manifest.json">
 </head>
-<body style="background: black; color: white; text-align: center; font-family: sans-serif; transition: all 0.3s;">
-    <h2 id="titleText">CCTV Device (Live)</h2>
-    <p id="subText">Controlled remotely from viewer...</p>
-    <video id="video" autoplay muted playsinline style="width: 100%; max-width: 600px; border: 2px solid red; transition: opacity 0.3s;"></video>
-    
+<body style="background: black; color: white; text-align: center; font-family: sans-serif; transition: 0.5s;">
+    <div id="ui">
+        <h2 id="camName">Connecting...</h2>
+        <video id="video" autoplay muted playsinline style="width: 90%; border: 2px solid red; border-radius: 10px;"></video>
+        <p>Status: <span id="status">Waiting...</span></p>
+    </div>
+
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
         const video = document.getElementById('video');
-        const titleText = document.getElementById('titleText');
-        const subText = document.getElementById('subText');
-        
+        const camNameDisp = document.getElementById('camName');
+        let myId = prompt("Enter Camera Name (e.g. Hall, Kitchen, Gate):") || "Phone-" + Math.floor(Math.random()*100);
+        camNameDisp.innerText = "Camera: " + myId;
+
         let peerConnections = {};
         const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-        let currentStream, isFront = false, flashOn = false, stealthMode = false, currentZoom = 1;
+        let currentStream, isFront = false, flashOn = false, wakeLock = null;
 
-        // Battery Info
-        if (navigator.getBattery) {
-            navigator.getBattery().then(battery => {
-                const sendBattery = () => { socket.emit('batteryInfo', { level: Math.round(battery.level * 100), charging: battery.charging }); };
-                sendBattery(); setInterval(sendBattery, 10000);
-            });
+        // Keep Screen Awake
+        async function requestWakeLock() {
+            try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
         }
+        requestWakeLock();
 
-        // NAYA: Live GPS Tracker
-        if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(
-                (pos) => { socket.emit('gpsInfo', { lat: pos.coords.latitude, lng: pos.coords.longitude, speed: pos.coords.speed || 0 }); },
-                (err) => { console.log("GPS Error:", err); },
-                { enableHighAccuracy: true, maximumAge: 0 }
-            );
-        }
-
-        async function startCamera() {
-            if (currentStream) currentStream.getTracks().forEach(track => track.stop());
-            currentZoom = 1; 
-            const constraints = { video: { facingMode: isFront ? "user" : "environment" }, audio: true };
+        async function init() {
             try {
-                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
                 video.srcObject = currentStream;
-                for (let id in peerConnections) {
-                    let sender = peerConnections[id].getSenders().find(s => s.track.kind === 'video');
-                    let newVideoTrack = currentStream.getVideoTracks()[0];
-                    if (sender) sender.replaceTrack(newVideoTrack);
-                }
-            } catch (error) { console.error("Camera error:", error); }
+                socket.emit('broadcaster', myId);
+                document.getElementById('status').innerText = "Live & Ready";
+            } catch (e) { alert("Camera Error: " + e); }
         }
 
-        startCamera().then(() => socket.emit('broadcaster'));
+        init();
+
+        // Battery & GPS (Background focus)
+        setInterval(() => {
+            if (navigator.getBattery) navigator.getBattery().then(b => socket.emit('batteryInfo', { level: Math.round(b.level * 100), charging: b.charging }));
+            if (navigator.geolocation) navigator.geolocation.getCurrentPosition(p => socket.emit('gpsInfo', { lat: p.coords.latitude, lng: p.coords.longitude }), null, {enableHighAccuracy:true});
+        }, 10000);
 
         socket.on('watcher', id => {
-            const peerConnection = new RTCPeerConnection(config);
-            peerConnections[id] = peerConnection;
-            currentStream.getTracks().forEach(track => peerConnection.addTrack(track, currentStream));
-            peerConnection.onicecandidate = event => { if (event.candidate) socket.emit('candidate', id, event.candidate); };
-            peerConnection.createOffer()
-            .then(sdp => peerConnection.setLocalDescription(sdp))
-            .then(() => socket.emit('offer', id, peerConnection.localDescription));
+            const pc = new RTCPeerConnection(config);
+            peerConnections[id] = pc;
+            currentStream.getTracks().forEach(t => pc.addTrack(t, currentStream));
+            pc.onicecandidate = e => e.candidate && socket.emit('candidate', id, e.candidate);
+            pc.createOffer().then(d => pc.setLocalDescription(d)).then(() => socket.emit('offer', id, pc.localDescription));
         });
 
-        socket.on('answer', (id, description) => { peerConnections[id].setRemoteDescription(description); });
-        socket.on('candidate', (id, candidate) => { peerConnections[id].addIceCandidate(new RTCIceCandidate(candidate)); });
-        socket.on('disconnectPeer', id => { if(peerConnections[id]) { peerConnections[id].close(); delete peerConnections[id]; } });
-
-        // Audio & Siren
-        let sirenInterval;
-        let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playSirenSound() {
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.5);
-            gain.gain.value = 1; osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.5);
-        }
-
-        socket.on('voiceCommand', (arrayBuffer) => {
-            const blob = new Blob([arrayBuffer], { type: 'audio/webm' });
-            const audio = new Audio(URL.createObjectURL(blob)); audio.play();
-        });
+        socket.on('answer', (id, desc) => peerConnections[id].setRemoteDescription(desc));
+        socket.on('candidate', (id, cand) => peerConnections[id].addIceCandidate(new RTCIceCandidate(cand)));
+        socket.on('voiceCommand', (buf) => { new Audio(URL.createObjectURL(new Blob([buf], {type:'audio/webm'}))).play(); });
 
         socket.on('remoteCommand', async (cmd) => {
-            if (cmd === 'switchCamera') { isFront = !isFront; flashOn = false; await startCamera(); } 
+            if (cmd === 'switchCamera') { isFront = !isFront; init(); }
             else if (cmd === 'toggleFlash') {
-                let track = currentStream.getVideoTracks()[0]; let caps = track.getCapabilities();
-                if (caps.torch) { flashOn = !flashOn; track.applyConstraints({ advanced: [{ torch: flashOn }] }); }
+                const track = currentStream.getVideoTracks()[0];
+                const caps = track.getCapabilities();
+                if(caps.torch) track.applyConstraints({advanced: [{torch: (flashOn = !flashOn)}]});
             }
             else if (cmd === 'toggleStealth') {
-                stealthMode = !stealthMode;
-                document.body.style.background = stealthMode ? "black" : "black";
-                titleText.style.color = stealthMode ? "black" : "white"; subText.style.color = stealthMode ? "black" : "white";
-                video.style.opacity = stealthMode ? "0.01" : "1"; video.style.border = stealthMode ? "none" : "2px solid red";
-            }
-            else if (cmd === 'zoomIn' || cmd === 'zoomOut') {
-                let track = currentStream.getVideoTracks()[0]; let caps = track.getCapabilities();
-                if (caps.zoom) {
-                    let step = (caps.zoom.max - caps.zoom.min) / 5;
-                    currentZoom = cmd === 'zoomIn' ? Math.min(caps.zoom.max, currentZoom + step) : Math.max(caps.zoom.min, currentZoom - step);
-                    track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
-                }
-            }
-            else if (cmd === 'toggleSiren') {
-                if (sirenInterval) { clearInterval(sirenInterval); sirenInterval = null; } 
-                else { sirenInterval = setInterval(playSirenSound, 600); playSirenSound(); }
+                document.getElementById('ui').style.opacity = document.getElementById('ui').style.opacity == "0" ? "1" : "0";
+                document.body.style.background = "black";
             }
         });
     </script>
