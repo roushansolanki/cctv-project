@@ -27,9 +27,19 @@ io.on('connection', (socket) => {
     socket.to(id).emit('candidate', socket.id, message);
   });
   
-  // NAYA FEATURE: Remote Commands Relay
+  // Remote Commands relay
   socket.on('remoteCommand', (command) => {
     socket.to(broadcaster).emit('remoteCommand', command);
+  });
+
+  // Battery info relay
+  socket.on('batteryInfo', (info) => {
+    socket.broadcast.emit('batteryInfo', info);
+  });
+
+  // Messages / Errors relay
+  socket.on('viewerMessage', (msg) => {
+    socket.broadcast.emit('viewerMessage', msg);
   });
 
   socket.on('disconnect', () => {
