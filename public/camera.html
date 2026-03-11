@@ -1,74 +1,135 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CCTV Broadcaster</title>
+    <title>CCTV - Secure Node</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="manifest" href="/manifest.json">
 </head>
-<body style="background: black; color: white; text-align: center; font-family: sans-serif; transition: 0.5s;">
-    <div id="ui">
-        <h2 id="camName">Connecting...</h2>
-        <video id="video" autoplay muted playsinline style="width: 90%; border: 2px solid red; border-radius: 10px;"></video>
-        <p>Status: <span id="status">Waiting...</span></p>
-    </div>
-
+<body style="background: black; color: white; text-align: center; font-family: sans-serif; transition: all 0.3s;">
+    <h2 id="titleText">Secure CCTV Node</h2>
+    <p id="subText">Device ID: <span id="devIdDisplay" style="color: #00ff88;">Loading...</span></p>
+    <video id="video" autoplay muted playsinline style="width: 100%; max-width: 600px; border: 2px solid #00ff88; transition: opacity 0.3s;"></video>
+    <p id="errorText" style="color: red;"></p>
+    
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
-        const video = document.getElementById('video');
-        const camNameDisp = document.getElementById('camName');
-        let myId = prompt("Enter Camera Name (e.g. Hall, Kitchen, Gate):") || "Phone-" + Math.floor(Math.random()*100);
-        camNameDisp.innerText = "Camera: " + myId;
+        // 1. Get Device ID from URL (e.g., yourdomain.com/camera.html?id=HallCam)
+        const urlParams = new URLSearchParams(window.location.search);
+        const DEVICE_ID = urlParams.get('id') || `Cam_${Math.floor(Math.random()*1000)}`;
+        document.getElementById('devIdDisplay').innerText = DEVICE_ID;
 
-        let peerConnections = {};
-        const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-        let currentStream, isFront = false, flashOn = false, wakeLock = null;
-
-        // Keep Screen Awake
-        async function requestWakeLock() {
-            try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {}
-        }
-        requestWakeLock();
-
-        async function init() {
-            try {
-                currentStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
-                video.srcObject = currentStream;
-                socket.emit('broadcaster', myId);
-                document.getElementById('status').innerText = "Live & Ready";
-            } catch (e) { alert("Camera Error: " + e); }
-        }
-
-        init();
-
-        // Battery & GPS (Background focus)
-        setInterval(() => {
-            if (navigator.getBattery) navigator.getBattery().then(b => socket.emit('batteryInfo', { level: Math.round(b.level * 100), charging: b.charging }));
-            if (navigator.geolocation) navigator.geolocation.getCurrentPosition(p => socket.emit('gpsInfo', { lat: p.coords.latitude, lng: p.coords.longitude }), null, {enableHighAccuracy:true});
-        }, 10000);
-
-        socket.on('watcher', id => {
-            const pc = new RTCPeerConnection(config);
-            peerConnections[id] = pc;
-            currentStream.getTracks().forEach(t => pc.addTrack(t, currentStream));
-            pc.onicecandidate = e => e.candidate && socket.emit('candidate', id, e.candidate);
-            pc.createOffer().then(d => pc.setLocalDescription(d)).then(() => socket.emit('offer', id, pc.localDescription));
+        // 2. Secure Connection with Token
+        const socket = io({ auth: { token: "MySuperSecretCCTV2026" } });
+        
+        socket.on('connect_error', (err) => {
+            document.getElementById('errorText').innerText = "Auth Failed: " + err.message;
         });
 
-        socket.on('answer', (id, desc) => peerConnections[id].setRemoteDescription(desc));
-        socket.on('candidate', (id, cand) => peerConnections[id].addIceCandidate(new RTCIceCandidate(cand)));
-        socket.on('voiceCommand', (buf) => { new Audio(URL.createObjectURL(new Blob([buf], {type:'audio/webm'}))).play(); });
+        const video = document.getElementById('video');
+        const titleText = document.getElementById('titleText');
+        const subText = document.getElementById('subText');
+        
+        let peerConnections = {};
+        
+        // 3. Real-World WebRTC Config (Add your TURN servers here!)
+        const config = { 
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" },
+                // { urls: "turn:your-turn-server.com:3478", username: "user", credential: "password" } 
+            ] 
+        };
+        
+        let currentStream, isFront = false, flashOn = false, stealthMode = false, currentZoom = 1;
+
+        // Telemetry Data (Combined GPS & Battery)
+        function sendTelemetry() {
+            let data = { battery: null, gps: null };
+            if (navigator.getBattery) {
+                navigator.getBattery().then(b => {
+                    data.battery = { level: Math.round(b.level * 100), charging: b.charging };
+                    emitTelemetry();
+                });
+            }
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { data.gps = { lat: pos.coords.latitude, lng: pos.coords.longitude, speed: pos.coords.speed || 0 }; emitTelemetry(); },
+                    (err) => { emitTelemetry(); }, { enableHighAccuracy: true, maximumAge: 10000 }
+                );
+            }
+            function emitTelemetry() { socket.emit('telemetry', data); }
+        }
+        setInterval(sendTelemetry, 10000);
+
+        async function startCamera() {
+            if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+            currentZoom = 1; 
+            const constraints = { video: { facingMode: isFront ? "user" : "environment" }, audio: true };
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = currentStream;
+                for (let id in peerConnections) {
+                    let sender = peerConnections[id].getSenders().find(s => s.track.kind === 'video');
+                    let newVideoTrack = currentStream.getVideoTracks()[0];
+                    if (sender) sender.replaceTrack(newVideoTrack);
+                }
+            } catch (error) { document.getElementById('errorText').innerText = "Camera Access Denied"; }
+        }
+
+        startCamera().then(() => {
+            // Register this specific camera to the server
+            socket.emit('register_camera', DEVICE_ID);
+        });
+
+        socket.on('watcher', id => {
+            const peerConnection = new RTCPeerConnection(config);
+            peerConnections[id] = peerConnection;
+            currentStream.getTracks().forEach(track => peerConnection.addTrack(track, currentStream));
+            peerConnection.onicecandidate = event => { if (event.candidate) socket.emit('candidate', id, event.candidate); };
+            peerConnection.createOffer()
+            .then(sdp => peerConnection.setLocalDescription(sdp))
+            .then(() => socket.emit('offer', id, peerConnection.localDescription));
+        });
+
+        socket.on('answer', (id, description) => { peerConnections[id].setRemoteDescription(description); });
+        socket.on('candidate', (id, candidate) => { peerConnections[id].addIceCandidate(new RTCIceCandidate(candidate)); });
+        socket.on('disconnectPeer', id => { if(peerConnections[id]) { peerConnections[id].close(); delete peerConnections[id]; } });
+        socket.on('forceDisconnect', () => { window.location.reload(); });
+
+        // Audio & Siren
+        let sirenInterval;
+        let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSirenSound() {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.5);
+            gain.gain.value = 1; osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+        }
+
+        socket.on('voiceCommand', (arrayBuffer) => {
+            const blob = new Blob([arrayBuffer], { type: 'audio/webm' });
+            const audio = new Audio(URL.createObjectURL(blob)); audio.play();
+        });
 
         socket.on('remoteCommand', async (cmd) => {
-            if (cmd === 'switchCamera') { isFront = !isFront; init(); }
+            if (cmd === 'switchCamera') { isFront = !isFront; flashOn = false; await startCamera(); } 
             else if (cmd === 'toggleFlash') {
-                const track = currentStream.getVideoTracks()[0];
-                const caps = track.getCapabilities();
-                if(caps.torch) track.applyConstraints({advanced: [{torch: (flashOn = !flashOn)}]});
+                let track = currentStream.getVideoTracks()[0]; let caps = track.getCapabilities();
+                if (caps.torch) { flashOn = !flashOn; track.applyConstraints({ advanced: [{ torch: flashOn }] }); }
             }
             else if (cmd === 'toggleStealth') {
-                document.getElementById('ui').style.opacity = document.getElementById('ui').style.opacity == "0" ? "1" : "0";
-                document.body.style.background = "black";
+                stealthMode = !stealthMode;
+                video.style.opacity = stealthMode ? "0.01" : "1"; video.style.border = stealthMode ? "none" : "2px solid #00ff88";
+            }
+            else if (cmd === 'zoomIn' || cmd === 'zoomOut') {
+                let track = currentStream.getVideoTracks()[0]; let caps = track.getCapabilities();
+                if (caps.zoom) {
+                    let step = (caps.zoom.max - caps.zoom.min) / 5;
+                    currentZoom = cmd === 'zoomIn' ? Math.min(caps.zoom.max, currentZoom + step) : Math.max(caps.zoom.min, currentZoom - step);
+                    track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+                }
+            }
+            else if (cmd === 'toggleSiren') {
+                if (sirenInterval) { clearInterval(sirenInterval); sirenInterval = null; } 
+                else { sirenInterval = setInterval(playSirenSound, 600); playSirenSound(); }
             }
         });
     </script>
