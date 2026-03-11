@@ -108,15 +108,21 @@
             alert("System Alert: " + msg);
             updateStatus(false);
         });
-
         function connectToCamera() {
             const camId = document.getElementById('targetCamId').value.trim();
             if(!camId) return alert("Enter a Camera ID");
+            
+            // NAYA FIX: Naye camera se judne se pehle purana connection close karein
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
             
             currentTargetId = camId;
             statusText.innerText = "Connecting...";
             socket.emit('watch_camera', currentTargetId);
         }
+
 
         function updateStatus(isOnline) {
             if(isOnline) { statusDot.classList.add('online'); statusText.innerText = "Connected to " + currentTargetId; statusText.style.color = "var(--primary)"; } 
