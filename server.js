@@ -42,9 +42,15 @@ io.on('connection', (socket) => {
         console.log(`[🎥] Camera Ready: ${deviceId}`);
     });
 
-    // --- VIEWER CONNECTION ---
+        // --- VIEWER CONNECTION ---
     socket.on('watch_camera', (deviceId) => {
         socket.role = 'viewer';
+        
+        // NAYA FIX: Purane kisi bhi camera room se leave karein taaki data mix na ho
+        socket.rooms.forEach(room => {
+            if (room.startsWith('viewer_room_')) socket.leave(room);
+        });
+
         const camSocketId = connectedCameras.get(deviceId);
         
         if (camSocketId) {
@@ -55,6 +61,7 @@ io.on('connection', (socket) => {
             socket.emit('systemError', 'Camera is offline or invalid Device ID');
         }
     });
+
 
     // --- WebRTC Signaling (Routed specific to Device) ---
     socket.on('offer', (targetId, message) => { socket.to(targetId).emit('offer', socket.id, message); });
