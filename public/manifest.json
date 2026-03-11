@@ -1,0 +1,9 @@
+{
+  "name": "Matrix CCTV",
+  "short_name": "CCTV",
+  "start_url": "/camera.html",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [{ "src": "https://cdn-icons-png.flaticon.com/512/805/805401.png", "sizes": "512x512", "type": "image/png" }]
+}
