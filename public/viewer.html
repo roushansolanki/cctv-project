@@ -25,7 +25,6 @@
         .night-vision { filter: sepia(1) hue-rotate(80deg) saturate(3) brightness(1.2) contrast(1.3); }
         #aiAlert { position: absolute; top: 20px; right: 20px; background: rgba(255,0,0,0.8); color: white; padding: 5px 15px; border-radius: 5px; font-weight: bold; display: none; animation: pulse 1s infinite; z-index: 10; }
 
-        /* Clutter-free UI layout */
         .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; width: 100%; max-width: 900px; }
         .control-group { background: var(--panel); padding: 15px; border-radius: 12px; border: 1px solid #2a2a35; }
         .control-group h3 { margin: 0 0 10px 0; font-size: 14px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
@@ -90,15 +89,12 @@
     
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // Secure Connection with Token
         const socket = io({ auth: { token: "MySuperSecretCCTV2026" } });
         let currentTargetId = null;
-
+        let peerConnection; 
         const video = document.getElementById('video');
         const statusDot = document.getElementById('statusDot'), statusText = document.getElementById('statusText');
-        let peerConnection; 
         
-        // 👉 TURN SERVER ADDED HERE
         const config = { 
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" },
@@ -116,7 +112,6 @@
             const camId = document.getElementById('targetCamId').value.trim();
             if(!camId) return alert("Enter a Camera ID");
             
-            // NAYA FIX: Naye camera se judne se pehle purana connection close karein
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
@@ -152,14 +147,14 @@
         let talkRecorder, talkChunks = [], talkStream;
         async function startTalk(e) {
             e.preventDefault();
-            if(!currentTargetId) return;
+            if(!currentTargetId) return alert("Connect to camera first!");
             try {
                 if(!talkStream) talkStream = await navigator.mediaDevices.getUserMedia({audio: true});
                 talkRecorder = new MediaRecorder(talkStream); talkChunks = [];
                 talkRecorder.ondataavailable = e => { if(e.data.size > 0) talkChunks.push(e.data); };
                 talkRecorder.onstop = () => { socket.emit('voiceCommand', currentTargetId, new Blob(talkChunks, { type: 'audio/webm' })); }; 
                 talkRecorder.start(); document.getElementById('walkieBtn').classList.add('active');
-            } catch(e) { console.error("Mic denied"); }
+            } catch(e) { alert("Mic permission denied!"); }
         }
         function stopTalk(e) { e.preventDefault(); if(talkRecorder && talkRecorder.state !== 'inactive') { talkRecorder.stop(); document.getElementById('walkieBtn').classList.remove('active'); } }
 
@@ -195,10 +190,9 @@
             });
         }
 
-        // Recording Logic
         let mediaRecorder, recordedChunks = [], isRecording = false;
         function toggleRecording() {
-            if (!video.srcObject) return;
+            if (!video.srcObject) return alert("No video stream to record!");
             const recordBtn = document.getElementById('recordBtn');
             if (!isRecording) {
                 recordedChunks = [];
@@ -213,7 +207,6 @@
             }
         }
 
-        // WebRTC Signaling
         socket.on('watcher', id => { });
         
         socket.on('offer', (id, description) => {
