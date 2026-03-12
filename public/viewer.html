@@ -98,9 +98,12 @@
         const statusDot = document.getElementById('statusDot'), statusText = document.getElementById('statusText');
         let peerConnection; 
         
+        // 👉 TURN SERVER ADDED HERE
         const config = { 
             iceServers: [
-                { urls: "stun:stun.l.google.com:19302" }
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+                { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
             ] 
         };
 
@@ -108,6 +111,7 @@
             alert("System Alert: " + msg);
             updateStatus(false);
         });
+        
         function connectToCamera() {
             const camId = document.getElementById('targetCamId').value.trim();
             if(!camId) return alert("Enter a Camera ID");
@@ -123,7 +127,6 @@
             socket.emit('watch_camera', currentTargetId);
         }
 
-
         function updateStatus(isOnline) {
             if(isOnline) { statusDot.classList.add('online'); statusText.innerText = "Connected to " + currentTargetId; statusText.style.color = "var(--primary)"; } 
             else { statusDot.classList.remove('online'); statusText.innerText = "Disconnected"; statusText.style.color = "var(--danger)"; }
@@ -133,7 +136,6 @@
             if(data.battery) document.getElementById('batteryStatus').innerText = `🔋 ${data.battery.level}% ${data.battery.charging ? '⚡' : ''}`;
             if(data.gps && data.gps.lat) {
                 const speed = Math.round(data.gps.speed * 3.6); 
-                // NAYA: Corrected Google Maps Link Format
                 document.getElementById('gpsStatus').innerHTML = `📍 <a href="https://maps.google.com/?q=${data.gps.lat},${data.gps.lng}" target="_blank" style="color:var(--primary)">Map</a> | 🚗 ${speed} km/h`; 
             }
         });
@@ -155,7 +157,6 @@
                 if(!talkStream) talkStream = await navigator.mediaDevices.getUserMedia({audio: true});
                 talkRecorder = new MediaRecorder(talkStream); talkChunks = [];
                 talkRecorder.ondataavailable = e => { if(e.data.size > 0) talkChunks.push(e.data); };
-                // NAYA: Walkie Talkie currentTargetId fix
                 talkRecorder.onstop = () => { socket.emit('voiceCommand', currentTargetId, new Blob(talkChunks, { type: 'audio/webm' })); }; 
                 talkRecorder.start(); document.getElementById('walkieBtn').classList.add('active');
             } catch(e) { console.error("Mic denied"); }
