@@ -31,12 +31,15 @@
         const video = document.getElementById('video');
         let peerConnections = {};
         
-        // 3. WebRTC Config (TURN SERVER FIXED - NO SYNTAX ERROR)
+        // 3. WebRTC Config (PRIVATE TURN SERVER ADDED)
         const config = { 
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" },
-                { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-                { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
+                { urls: "stun:stun.relay.metered.ca:80" },
+                { urls: "turn:global.relay.metered.ca:80", username: "37b362bda868077f80104cde", credential: "IqAKxJUtcoBzrGpb" },
+                { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "37b362bda868077f80104cde", credential: "IqAKxJUtcoBzrGpb" },
+                { urls: "turn:global.relay.metered.ca:443", username: "37b362bda868077f80104cde", credential: "IqAKxJUtcoBzrGpb" },
+                { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "37b362bda868077f80104cde", credential: "IqAKxJUtcoBzrGpb" }
             ] 
         };
         
