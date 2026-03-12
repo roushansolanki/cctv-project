@@ -12,9 +12,13 @@
     
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // 1. Get Device ID from URL (e.g., yourdomain.com/camera.html?id=HallCam)
-        const urlParams = new URLSearchParams(window.location.search);
-        const DEVICE_ID = urlParams.get('id') || `Cam_${Math.floor(Math.random()*1000)}`;
+        // 1. Get Device ID (Safe Method)
+        let DEVICE_ID = `Cam_${Math.floor(Math.random()*1000)}`;
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            if(urlParams.get('id')) DEVICE_ID = urlParams.get('id');
+        } catch(e) { console.log("URL parse error"); }
+        
         document.getElementById('devIdDisplay').innerText = DEVICE_ID;
 
         // 2. Secure Connection with Token
@@ -25,29 +29,14 @@
         });
 
         const video = document.getElementById('video');
-        const titleText = document.getElementById('titleText');
-        const subText = document.getElementById('subText');
-        
         let peerConnections = {};
         
-        // 3. Real-World WebRTC Config (Add your TURN servers here!)
-                const config = { 
+        // 3. WebRTC Config (TURN SERVER FIXED - NO SYNTAX ERROR)
+        const config = { 
             iceServers: [
                 { urls: "stun:stun.l.google.com:19302" },
-                { 
-                    urls: "turn:openrelay.metered.ca:80", 
-                    username: "openrelayproject", 
-                    credential: "openrelayproject" 
-                },
-                { 
-                    urls: "turn:openrelay.metered.ca:443", 
-                    username: "openrelayproject", 
-                    credential: "openrelayproject" 
-                }
-            ] 
-        };
-
-                // { urls: "turn:your-turn-server.com:3478", username: "user", credential: "password" } 
+                { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+                { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
             ] 
         };
         
@@ -88,7 +77,6 @@
         }
 
         startCamera().then(() => {
-            // Register this specific camera to the server
             socket.emit('register_camera', DEVICE_ID);
         });
 
